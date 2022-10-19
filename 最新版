@@ -199,7 +199,7 @@ void Piping(vector<string> input){
 				close(numberpipe_vector[numberpipe_vector.size()-1].out);
 			}
 			if(i == input.size()-1 && has_errpipe){
-				dup2(numberpipe_vector[numberpipe_vector.size()-1].out,STDERR_FILENO);
+				dup2(numberpipe_vector[numberpipe_vector.size()-1].out,2);
 				dup2(numberpipe_vector[numberpipe_vector.size()-1].out,1);
 				close(numberpipe_vector[numberpipe_vector.size()-1].in);
 				close(numberpipe_vector[numberpipe_vector.size()-1].out);
@@ -280,6 +280,7 @@ int main(){
 			for(int j = 0 ; j < s.size() ; j++){
 				if(s[j] == '|' || s[j] == '!'){
 					string number2 = s.erase(0,j + numpip.length());
+					//cout << "number = " << number2 << endl;
 					number_record.push_back(number2);
 				}
 			}
@@ -289,11 +290,30 @@ int main(){
 
 		int count = 0;
 		int l = 0;
+		int cnt = 0;
+		int o = 0;
 		vector<int> record;
-		for(int i = 1 ; i < input.size() ; i++){
+		for(int i = 0 ; i < input.size() ; i++){
+			cnt++;
 			if(input[i] == '!' || input[i] == '|' && input[i+1] != ' '){
 				count ++;
-				record.push_back(i);
+				record.push_back(cnt);
+				if(number_record[o].length() == 1){
+					cnt = -2;
+					o++;
+				}else if(number_record[o].length() == 2){
+					cnt = -3;
+					o++;
+				}else if(number_record[o].length() == 3){
+					cnt = -4;
+					o++;
+				}else if(number_record[o].length() == 4){
+					cnt = -5;
+					o++;
+				}else{
+					cnt = -6;
+					o++;
+				}
 				//cout << "count = " << count << endl;
 				//cout << "record = " << record[l++] << endl;
 			}
@@ -302,11 +322,33 @@ int main(){
 		int k = 0;
 		if(count > 0){
 			for(int i = 0 ; i < count ; i++){
-				cmd.push_back(input.substr(0,record[i]+1)+number_record[i]);
-				//cout << "numberrecord = " << number_record[i] << endl;
-				//cout << "cmds = " << cmd[k++] << endl;
-				input.erase(0,record[i]+1+atoi(number_record[i].c_str()));
-				//cout << "remains = " << input.size() << endl;
+				if(number_record[i].length() == 1){
+					cmd.push_back(input.substr(0,record[i])+number_record[i]);
+					//cout << "cmds = " << cmd[k++] << endl;
+					input.erase(0,record[i]+2);
+					//cout << "remains = " << input.size() << endl;
+				}else if(number_record[i].length() == 2){
+					cmd.push_back(input.substr(0,record[i])+number_record[i]);
+					//cout << "cmds = " << cmd[k++] << endl;
+					input.erase(0,record[i]+3);
+					//cout << "remains = " << input.size() << endl;
+				}else if(number_record[i].length() == 3){
+					cmd.push_back(input.substr(0,record[i])+number_record[i]);
+					//cout << "cmds = " << cmd[k++] << endl;
+					input.erase(0,record[i]+4);
+					//cout << "remains = " << input.size() << endl;
+				}else if(number_record[i].length() == 4){
+					cmd.push_back(input.substr(0,record[i])+number_record[i]);
+					//cout << "cmds = " << cmd[k++] << endl;
+					input.erase(0,record[i]+5);
+					//cout << "remains = " << input.size() << endl;
+				}else{
+					cmd.push_back(input.substr(0,record[i])+number_record[i]);
+					//cout << "cmds = " << cmd[k++] << endl;
+					input.erase(0,record[i]+6);
+					//cout << "remains = " << input.size() << endl;
+				}
+				
 			}
 			if(input.size() > 0){
 				cmd.push_back(input);
@@ -324,7 +366,7 @@ int main(){
 					//cout << "commands = " << commands[k++] << endl;
 				}
 				Piping(commands);
-				usleep(100000);
+				usleep(10000);
 			}
 			
 		}else{
