@@ -1,34 +1,30 @@
 #include <iostream>
 #include <stdio.h>
 #include <cstdlib>
-#include <stdlib.h>
-#include <string>
-#include <cstring>
-#include <unistd.h>
-#include <sys/wait.h>
-#include <sstream>
-#include <vector>
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <algorithm>
-#include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <sys/types.h>
 #include <sys/time.h>
 #include <map>
 #include <list>
+#include <stdlib.h>
+#include <string>
+#include <sstream>
+#include <vector>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <algorithm>
+#include <sys/socket.h>
+#include <cstring>
+#include <unistd.h>
+#include <sys/wait.h>
 
-#define QLEN 5
 #define BUFSIZE 4096
 #define CLIENTMAX 30
 
 using namespace std;
-void EXECINSTR(vector<string> instr,int client_fd);
 int GETSTART(string input,int fd);
-int passiveTCP(int qlen);
 int echo(int fd);
-void welcome(int fd);
 void Piping(vector<string> input,int fd);
 
 struct npipe{
@@ -46,15 +42,13 @@ struct userpipe{
 };
 
 struct client{
+	int fd;
     int ID;
     string ip;
     string nickname;
-	int fd;
-	/* used to store numberpipe */
 	vector<npipe> numberpipe_vector;
 	vector<int> num;
-	/* used to sotre user env setting */
-	map<string, string> mapenv;
+	map<string, string> enviroment;
 };
 
 struct broadcast_order{
@@ -65,23 +59,23 @@ struct broadcast_order{
 };
 
 /* used to store user information */
-vector<client> client_info;
+vector<client> cvector;
 /* userd to store user pipe information */
 vector<userpipe> up_vector;
 
-int msock;               /* master server socket	*/
+int msocket;               /* master server socket	*/
 fd_set rfds;             /* read file descriptor set	*/
 fd_set afds;             /* active file descriptor set */
 int ID_arr[CLIENTMAX];
 
-int get_min_num(){
+int select_min(){
 	for(int i = 0;i < CLIENTMAX;++i){
 		if(ID_arr[i] == 0){
 			ID_arr[i] = 1;
 			return i+1;
 		}
 	}
-	return -1;
+	return 87;
 }
 
 void broadcast(int type,string msg,client *client,int tarfd){
@@ -130,10 +124,10 @@ void broadcast(int type,string msg,client *client,int tarfd){
 		case 5:
 			/* send user pipe information */
 			/* Success to send userpipe */
-			for(int i = 0;i < client_info.size();i++){
-				if(client_info[i].ID == tarfd){
+			for(int i = 0;i < cvector.size();i++){
+				if(cvector[i].ID == tarfd){
 					sprintf(buf,"*** %s (#%d) just piped '%s' to %s (#%d) ***\n",
-					client->nickname.c_str(),client->ID,msg.c_str(),client_info[i].nickname.c_str(),client_info[i].ID);
+					client->nickname.c_str(),client->ID,msg.c_str(),cvector[i].nickname.c_str(),cvector[i].ID);
 					break;
 				}
 			}
@@ -141,10 +135,10 @@ void broadcast(int type,string msg,client *client,int tarfd){
 		case 6:
 			/* recv user pipe information */
 			/* Success to send userpipe */
-			for(int i = 0;i < client_info.size();i++){
-				if(client_info[i].ID == tarfd){
+			for(int i = 0;i < cvector.size();i++){
+				if(cvector[i].ID == tarfd){
 					sprintf(buf,"*** %s (#%d) just received from %s (#%d) by '%s' ***\n",
-					client->nickname.c_str(),client->ID,client_info[i].nickname.c_str(),client_info[i].ID,msg.c_str());
+					client->nickname.c_str(),client->ID,cvector[i].nickname.c_str(),cvector[i].ID,msg.c_str());
 					/* tarfd is ID*/
 					break;
 				}
@@ -160,20 +154,20 @@ void broadcast(int type,string msg,client *client,int tarfd){
 		for (int fd = 0; fd < nfds; ++fd)
 		{
 			//send to all active fd
-			if (fd != msock && FD_ISSET(fd, &afds))
+			if (fd != msocket && FD_ISSET(fd, &afds))
 			{
-				int cc = write(fd, tmp.c_str(), tmp.length());
+				int wr = write(fd, tmp.c_str(), tmp.length());
 			}
 		}
 }
 
 void DeleteClient(int fd){
 	int id;
-	for(int i = 0;i < client_info.size();i++){
-		if(client_info[i].fd == fd){
-			ID_arr[client_info[i].ID-1] = 0;
-			id = client_info[i].ID;
-			client_info.erase(client_info.begin()+i);
+	for(int i = 0;i < cvector.size();i++){
+		if(cvector[i].fd == fd){
+			ID_arr[cvector[i].ID-1] = 0;
+			id = cvector[i].ID;
+			cvector.erase(cvector.begin()+i);
 			break;
 		}
 	}
@@ -208,20 +202,20 @@ vector<string> split(string str, string pattern) {
     return result;
 }
 void SETENV(string name,string val,int fd){
-	for(int i = 0;i < client_info.size();i++){
-		if(client_info[i].fd == fd){
-			client_info[i].mapenv[name] = val;
+	for(int i = 0;i < cvector.size();i++){
+		if(cvector[i].fd == fd){
+			cvector[i].enviroment[name] = val;
 			break;
 		}
 	}
 }
 
 string PRINTENV(string name,int fd){
-	for(int i = 0;i < client_info.size();i++){
-		if(client_info[i].fd == fd){
-			auto it = client_info[i].mapenv.find(name);
-			if (it != client_info[i].mapenv.end()) {
-				return it->second;
+	for(int i = 0;i < cvector.size();i++){
+		if(cvector[i].fd == fd){
+			auto env = cvector[i].enviroment.find(name);
+			if (env != cvector[i].enviroment.end()) {
+				return env->second;
 			}
 		}
 	}
@@ -230,12 +224,12 @@ string PRINTENV(string name,int fd){
 
 void WHO(int fd){
 	printf("<ID>\t<nickname>\t<IP:port>\t<indicate me>\n");
-	for(int i = 0;i < client_info.size();i++){
-		if(client_info[i].fd == fd){
-			printf("%d\t%s\t%s\t<-me\n",client_info[i].ID,client_info[i].nickname.c_str(),client_info[i].ip.c_str());
+	for(int i = 0;i < cvector.size();i++){
+		if(cvector[i].fd == fd){
+			printf("%d\t%s\t%s\t<-me\n",cvector[i].ID,cvector[i].nickname.c_str(),cvector[i].ip.c_str());
 		}
 		else{
-			printf("%d\t%s\t%s\t\n",client_info[i].ID,client_info[i].nickname.c_str(),client_info[i].ip.c_str());
+			printf("%d\t%s\t%s\t\n",cvector[i].ID,cvector[i].nickname.c_str(),cvector[i].ip.c_str());
 		}
 	}
 	fflush(stdout);
@@ -243,28 +237,28 @@ void WHO(int fd){
 
 void NAME(int fd,string name){
 	client c_tmp;
-	for(int i = 0;i < client_info.size();i++){
-		if(client_info[i].fd == fd) c_tmp = client_info[i];
-		if(client_info[i].nickname == name){
-			if(client_info[i].fd != fd){
+	for(int i = 0;i < cvector.size();i++){
+		if(cvector[i].fd == fd) c_tmp = cvector[i];
+		if(cvector[i].nickname == name){
+			if(cvector[i].fd != fd){
 				broadcast(1,name,&c_tmp,-1);
 				return;
 			}
 		}
 	}
-	for(int i = 0;i < client_info.size();i++){
-		if(client_info[i].fd == fd && client_info[i].nickname != name){
-			client_info[i].nickname = name;
-			broadcast(1,name,&client_info[i],0);
+	for(int i = 0;i < cvector.size();i++){
+		if(cvector[i].fd == fd && cvector[i].nickname != name){
+			cvector[i].nickname = name;
+			broadcast(1,name,&cvector[i],0);
 			break;
 		}
 	}
 }
 
 void YELL(int fd,string msg){
-	for(int i = 0;i < client_info.size();i++){
-		if(client_info[i].fd == fd){
-			broadcast(2,msg,&client_info[i],0);
+	for(int i = 0;i < cvector.size();i++){
+		if(cvector[i].fd == fd){
+			broadcast(2,msg,&cvector[i],0);
 		}
 	}
 }
@@ -272,12 +266,12 @@ void YELL(int fd,string msg){
 void TELL(int fd,string msg,int target){
 	client me,tar;
 	tar.fd = -1;
-	for(int i = 0;i < client_info.size();i++){
-		if(client_info[i].fd == fd){
-			me = client_info[i];
+	for(int i = 0;i < cvector.size();i++){
+		if(cvector[i].fd == fd){
+			me = cvector[i];
 		}
-		if(client_info[i].ID == target){
-			tar = client_info[i];
+		if(cvector[i].ID == target){
+			tar = cvector[i];
 		}
 	}
 	if(tar.fd == -1) msg = to_string(target);
@@ -296,6 +290,34 @@ void CreatePipe(){
 	pipe_vector.push_back(np);
 }
 
+void EXECINSTR(vector<string> instr,client *cnt){
+	int fd;
+	const char **argv = new const char* [instr.size()+1];
+	for(int i=0;i < instr.size();++i){
+		//file redirect
+		if(instr[i] == ">"){
+			fd = open(instr.back().c_str(),O_CREAT|O_RDWR|O_TRUNC, S_IREAD|S_IWRITE);
+			instr.pop_back();
+			instr.pop_back();
+			close(1);
+			dup(fd);
+			close(fd);
+		}
+		argv[i] = instr[i].c_str();
+	}
+	argv[instr.size()] = NULL;
+	clearenv();
+	setenv("PATH",PRINTENV("PATH",cnt->fd).c_str(),1);
+	if(execvp(argv[0],(char **)argv) == -1){
+		//stderr for unknown command
+		if(instr[0] != "setenv" && instr[0] != "printenv" && instr[0] != "exit"&&
+		   instr[0] != "who" && instr[0] != "name" && instr[0] != "yell")
+			fprintf(stderr,"Unknown command: [%s].\n",instr[0].c_str());
+			fflush(stdout);
+		exit(0);
+	}
+}
+
 void Piping(vector<string> input,int fd){
 	bool has_numberpipe = false,has_errpipe = false;
 	string numpip = "|";
@@ -304,8 +326,10 @@ void Piping(vector<string> input,int fd){
 	string senpip = ">";
 	string space = " ";
 	client *c;
-	for(int i = 0;i < client_info.size();i++){
-		c = &client_info[i];
+	client tmp_c;
+	for(int i = 0;i < cvector.size();i++){
+		c = &cvector[i];
+		tmp_c = cvector[i];
 		if(c->fd == fd) break;
 	}
 	for(int i = 0 ; i < input.size() ; i++){
@@ -369,7 +393,7 @@ void Piping(vector<string> input,int fd){
 							continue_id1 = true;
 							break;
 						}
-						for(int k = 0;k < up_vector.size();++k){
+						for(int k = 0;k < up_vector.size(); k++){
 							if(up_vector[k].recv_id == c->ID && up_vector[k].send_id == send_id && !up_vector[k].used){
 								/* had userpipe before */
 								user_recv_idx = k;
@@ -404,7 +428,7 @@ void Piping(vector<string> input,int fd){
 							continue_id2 = true;
 							break;
 						}
-						for(int k = 0;k < up_vector.size();++k){
+						for(int k = 0;k < up_vector.size(); k++){
 							if(up_vector[k].recv_id == recv_id && up_vector[k].send_id == c->ID && !up_vector[k].used){
 								/* had userpipe before */
 								dup_userpipe = true;
@@ -582,38 +606,10 @@ void Piping(vector<string> input,int fd){
 				close(pipe_vector[j].in);
 				close(pipe_vector[j].out);
 			}
-			EXECINSTR(instr,fd);
+			EXECINSTR(instr,&tmp_c);
 		}	
 	}
 	pipe_vector.clear();
-}
-
-void EXECINSTR(vector<string> instr,int client_fd){
-	int fd;
-	const char **argv = new const char* [instr.size()+1];
-	for(int i=0;i < instr.size();++i){
-		//file redirect
-		if(instr[i] == ">"){
-			fd = open(instr.back().c_str(),O_CREAT|O_RDWR|O_TRUNC, S_IREAD|S_IWRITE);
-			instr.pop_back();
-			instr.pop_back();
-			close(1);
-			dup(fd);
-			close(fd);
-		}
-		argv[i] = instr[i].c_str();
-	}
-	argv[instr.size()] = NULL;
-	clearenv();
-	setenv("PATH",PRINTENV("PATH",client_fd).c_str(),1);
-	if(execvp(argv[0],(char **)argv) == -1){
-		//stderr for unknown command
-		if(instr[0] != "setenv" && instr[0] != "printenv" && instr[0] != "exit"&&
-		   instr[0] != "who" && instr[0] != "name" && instr[0] != "yell")
-			fprintf(stderr,"Unknown command: [%s].\n",instr[0].c_str());
-			fflush(stdout);
-		exit(0);
-	}
 }
 
 int GETSTART(string input,int fd){
@@ -782,134 +778,130 @@ int GETSTART(string input,int fd){
 		return 0;
 	
 }
-int passiveTCP(int qlen, int port)
-{
-    struct sockaddr_in sin; /* an Internet endpoint address	*/
-    int s, type;            /* socket descriptor and socket type	*/
 
-    bzero((char *)&sin, sizeof(sin));
-    sin.sin_family = AF_INET;
-    sin.sin_addr.s_addr = INADDR_ANY;
-    sin.sin_port = htons(port);
-    /* Allocate a socket */
-    s = socket(PF_INET, SOCK_STREAM, 0);
-    if (s < 0)
-        perror("socket fail");
-    int optval = 1;
-	if (setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(int)) == -1) 
-    {
-		perror("Error: set socket failed");
-		return 0;
-	}
-    /* Bind the socket */
-    if (bind(s, (struct sockaddr *)&sin, sizeof(sin)) < 0)
-        perror("bind fail");
-    if (listen(s, qlen) < 0)
-        perror("listen fail");
-    return s;
-}
-
-bool sortid(client s1, client s2){
+bool sortclient(client s1, client s2){
    return s1.ID < s2.ID;
 }
 
 int main(int argc, char *argv[])
 {
-    struct sockaddr_in fsin; /* the from address of a client */
-    int alen;                /* from-address length	*/
+    struct sockaddr_in fsin;
+	struct sockaddr_in sin;
+    int alen;
     int fd, nfds;
     int port = atoi(argv[1]);
+	bzero((char *)&sin, sizeof(sin));
     for(int i = 0;i < CLIENTMAX;++i) ID_arr[i] = 0;
-    msock = passiveTCP(QLEN, port);
+    sin.sin_family = AF_INET;
+    sin.sin_addr.s_addr = INADDR_ANY;
+    sin.sin_port = htons(port);
+    /* Allocate a socket */
+    msocket = socket(PF_INET, SOCK_STREAM, 0);
+    if (msocket < 0){
+		perror("Error: socket fail");
+		exit(1);
+	}
+    int optval = 1;
+	if (setsockopt(msocket, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(int)) == -1) 
+    {
+		perror("Error: set socket failed");
+		exit(1);
+	}
+    /* Bind the socket */
+    if (bind(msocket, (struct sockaddr *)&sin, sizeof(sin)) < 0){
+		perror("Error: bind fail");
+		exit(1);
+	}
+    if (listen(msocket, 5) < 0){
+		perror("Error: listen fail");
+		exit(1);
+	}
     nfds = getdtablesize();
     FD_ZERO(&afds);
     //exclude server fd
-    FD_SET(msock, &afds);
+    FD_SET(msocket, &afds);
 
     while (1)
     {
-        memcpy(&rfds, &afds, sizeof(rfds));
+        rfds = afds;
         int err,stat;
         do{
             stat = select(nfds, &rfds, (fd_set *)0, (fd_set *)0, (struct timeval *)0);
             if( stat< 0) err = errno;
         } while ((stat < 0) && (err == EINTR)); /* blocked by pipe or other reason */
         if (stat < 0)
-            perror("select fail");
-        if (FD_ISSET(msock, &rfds))
+            perror("Error: select fail");
+        if (FD_ISSET(msocket, &rfds))
         {
-            int ssock;
+            int ssocket;
             alen = sizeof(fsin);
-            ssock = accept(msock, (struct sockaddr *)&fsin,
-                           (socklen_t *)&alen);
-            if (ssock < 0)
-                perror("accept fail");
+            ssocket = accept(msocket, (struct sockaddr *)&fsin, (socklen_t *)&alen);
+            if (ssocket < 0)
+                perror("Error: accept fail");
             /* Check number of clients*/
             int ID;
-            ID = get_min_num();
-            if(ID < 0){
-                perror("Client MAX");
+            ID = select_min();
+            if(ID == 87){
+                perror("Error: Client Exceed");
                 continue;
             }
-            FD_SET(ssock, &afds);
+            FD_SET(ssocket, &afds);
             /* send welcome msg */
             /* client ip */
             char ip[INET6_ADDRSTRLEN];
             sprintf(ip, "%s:%d", inet_ntoa(fsin.sin_addr), ntohs(fsin.sin_port));
             string tmp(ip);
-            welcome(ssock);
+			string buf =	"****************************************\n\
+							** Welcome to the information server. **\n\
+							****************************************\n";
+			int wr = write(ssocket, buf.c_str(), buf.length());
             /* create user info */
             /* custome env information */
-            map<string, string> ev;
-            ev.clear();
-            ev["PATH"] = "bin:.";
+            map<string, string> env;
+            env.clear();
+            env["PATH"] = "bin:.";
             /* custom number pipe vector */
             vector<npipe> np;
             np.clear();
 			vector<int> num;
 			num.clear();
-            client c = {ID, tmp, "(no name)", ssock,np,num,ev};
-            client_info.push_back(c);
+            client c = {ssocket, ID, tmp, "(no name)", np, num, env};
+            cvector.push_back(c);
             /* sort by client id */
-            sort(client_info.begin(), client_info.end(), sortid);
+            sort(cvector.begin(), cvector.end(), sortclient);
             /* broadcast login information */
             broadcast(0, "", &c, 0);
-            write(ssock, "% ", 2);
+            write(ssocket, "% ", 2);
         }
         for (fd = 0; fd < nfds; ++fd)
-            if (fd != msock && FD_ISSET(fd, &rfds))
+		{
+			if (fd != msocket && FD_ISSET(fd, &rfds))
             {
                 char buf[BUFSIZE];
-                memset( buf, 0, sizeof(char)*BUFSIZE );
-                int cc;
-                cc = recv(fd, buf, BUFSIZE, 0);
-                if (cc == 0){
-                    //cout << "socket: " << fd << "closed" << endl;
-                    return -1;
+				bzero(buf,sizeof(buf));
+                int rd = read(fd, buf, BUFSIZE);
+                if (rd <= 0){
+                    exit(1);
                 }
-                else if(cc < 0){
-                    //perror("receive error");
-                    return -1;
-                }
-                buf[cc] = '\0';
+                buf[rd] = '\0';
                 string input(buf);
-                dup2(fd, STDOUT_FILENO);
-                dup2(fd, STDERR_FILENO);
+				close(1);
+				close(2);
+				dup(fd);
+				dup(fd);
                 fix_order.clear();
                 int status = GETSTART(input, fd);
                 send(fd, "% ", 2,0);
-                if (status == -1)
-                {
+                if (status == -1){
                     /* broadcast logout information */
                     client c;
-                    for(int i = 0;i < client_info.size();i++){
-                        client tmp = client_info[i];
-                        if(tmp.fd == fd){
-                            c = tmp;
+                    for(int i = 0;i < cvector.size();i++){
+                        if(cvector[i].fd == fd){
+                            c = cvector[i];
                             break;
                         }
                     }
-                    broadcast(4, "", &c,0);
+                    broadcast(4, "", &c, 0);
                     DeleteClient(fd);
                     close(fd);
                     close(1);
@@ -919,16 +911,7 @@ int main(int argc, char *argv[])
                     FD_CLR(fd, &afds);
                 }
             }
+		}
+            
     }
-}
-
-void welcome(int fd)
-{
-    string buf =
-        "****************************************\n\
-** Welcome to the information server. **\n\
-****************************************\n";
-    int cc;
-    cc = send(fd, buf.c_str(), buf.length(), 0);
-    return;
 }
