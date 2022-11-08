@@ -150,6 +150,17 @@ void broadcast(int type,string msg,client *client,int tarfd){
 	}
 	/* Not tell msg */
 	string tmp(buf);
+	if(type == 4){
+		for (int fd = 0; fd < nfds; ++fd)
+		{
+			//send to all active fd
+			if (fd != msocket && FD_ISSET(fd, &afds) && fd != client->fd)
+			{
+				int wr = write(fd, tmp.c_str(), tmp.length());
+			}
+		}
+		return;
+	}
 	if(type != 3)
 		for (int fd = 0; fd < nfds; ++fd)
 		{
@@ -161,24 +172,6 @@ void broadcast(int type,string msg,client *client,int tarfd){
 		}
 }
 
-void DeleteClient(int fd){
-	int id;
-	for(int i = 0;i < cvector.size();i++){
-		if(cvector[i].fd == fd){
-			ID_arr[cvector[i].ID-1] = 0;
-			id = cvector[i].ID;
-			cvector.erase(cvector.begin()+i);
-			break;
-		}
-	}
-	for(int i = 0;i < up_vector.size();++i){
-		if(up_vector[i].send_id == id || up_vector[i].recv_id == id){
-			close(up_vector[i].in);
-			close(up_vector[i].out);
-			up_vector.erase(up_vector.begin()+i);
-		}
-	}
-}
 string original_input;
 list<broadcast_order> fix_order;
 vector<string> split(string str, string pattern) {
@@ -851,9 +844,10 @@ int main(int argc, char *argv[])
             char ip[INET6_ADDRSTRLEN];
             sprintf(ip, "%s:%d", inet_ntoa(fsin.sin_addr), ntohs(fsin.sin_port));
             string tmp(ip);
-			string buf =	"****************************************\n\
-							** Welcome to the information server. **\n\
-							****************************************\n";
+			string buf =
+        "****************************************\n\
+** Welcome to the information server. **\n\
+****************************************\n";
 			int wr = write(ssocket, buf.c_str(), buf.length());
             /* create user info */
             /* custome env information */
@@ -890,9 +884,7 @@ int main(int argc, char *argv[])
 				dup(fd);
 				dup(fd);
                 fix_order.clear();
-                int status = GETSTART(input, fd);
-                send(fd, "% ", 2,0);
-                if (status == -1){
+                if (GETSTART(input, fd) == -1){
                     /* broadcast logout information */
                     client c;
                     for(int i = 0;i < cvector.size();i++){
@@ -902,14 +894,31 @@ int main(int argc, char *argv[])
                         }
                     }
                     broadcast(4, "", &c, 0);
-                    DeleteClient(fd);
+					int id;
+					for(int i = 0;i < cvector.size();i++){
+						if(cvector[i].fd == fd){
+							ID_arr[cvector[i].ID-1] = 0;
+							id = cvector[i].ID;
+							cvector.erase(cvector.begin()+i);
+							break;
+						}
+					}
+					for(int i = 0;i < up_vector.size();++i){
+						if(up_vector[i].send_id == id || up_vector[i].recv_id == id){
+							close(up_vector[i].in);
+							close(up_vector[i].out);
+							up_vector.erase(up_vector.begin()+i);
+						}
+					}
                     close(fd);
                     close(1);
                     close(2);
-                    dup2(0, 1);
-                    dup2(0, 2);
+                    dup(0);
+                    dup(0);
                     FD_CLR(fd, &afds);
-                }
+                }else{
+					write(fd, "% ", 2);
+				}
             }
 		}
             
