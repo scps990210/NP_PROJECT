@@ -38,7 +38,7 @@ struct client{
     int ID;
     char ip[INET6_ADDRSTRLEN];
     char nickname[20];
-	int cpid;
+	int pid;
 };
 
 struct FIFOunit{
@@ -146,11 +146,11 @@ void broadcast(int type,string msg,int ID,int tarfd){
 		for(int i = 0;i < CLIENTMAX;++i){
 			/* check id valid */
 			if(c[i].valid == true){
-				kill(c[i].cpid,SIGUSR1);
+				kill(c[i].pid,SIGUSR1);
 			}
 		}
 	}else if(tarfd != -1){
-		kill(c[tarfd-1].cpid,SIGUSR1);
+		kill(c[tarfd-1].pid,SIGUSR1);
 	}
 	munmap(c, sizeof(client) * CLIENTMAX);
 }
@@ -270,7 +270,7 @@ void WHO(){
 	client *c =  (client *)mmap(NULL, sizeof(client) * CLIENTMAX, PROT_READ, MAP_SHARED, info_shared_fd, 0);
 	for(int i = 0;i < CLIENTMAX;i++){
 		if(c[i].valid == true){
-			if(c[i].cpid == getpid()){
+			if(c[i].pid == getpid()){
 				printf("%d\t%s\t%s\t<-me\n",i+1,c[i].nickname,c[i].ip);
 			}
 			else
@@ -287,7 +287,7 @@ void NAME(string name,int ID){
 	client *c =  (client *)mmap(NULL, sizeof(client) * CLIENTMAX, PROT_READ| PROT_WRITE, MAP_SHARED, info_shared_fd, 0);
 	for(int i = 0;i < CLIENTMAX;i++){
 		if(c[i].valid == true && c[i].nickname == name){
-			if(c[i].cpid != getpid()){
+			if(c[i].pid != getpid()){
 				broadcast(1,name,ID,-1);
 				return;
 			}
@@ -543,7 +543,7 @@ int ParseCMD(vector<string> input,int ID){
 						/* Copy filename and open input fd */
 						strncpy(f->fifolist[ID-1][recv_id-1].name,send_fifo_name,PATHMAX);
 						//usleep(50);
-						kill(c[recv_id-1].cpid,SIGUSR2);
+						kill(c[recv_id-1].pid,SIGUSR2);
 						f->fifolist[ID-1][recv_id-1].out = open(send_fifo_name,O_WRONLY);
 						//cout <<getpid() << " open out" << f->fifolist[ID-1][recv_id-1].out << endl;
 						munmap(f,  sizeof(fifo_info));
@@ -580,18 +580,18 @@ int ParseCMD(vector<string> input,int ID){
 		}
 
 		signal(SIGCHLD, HandleChild);
-		pid_t cpid;
+		pid_t pid;
 		int status;
-		cpid = fork();
-		while (cpid < 0)
+		pid = fork();
+		while (pid < 0)
 		{
 			usleep(1000);
-			cpid = fork();
+			pid = fork();
 		}
 		/* Parent */
-		if(cpid != 0){
+		if(pid != 0){
 			//Check fork information
-			//cout << "fork " << cpid << endl;
+			//cout << "fork " << pid << endl;
 			if(i != 0){
 				close(pipe_vector[i-1].in);
 				close(pipe_vector[i-1].out);
@@ -608,7 +608,7 @@ int ParseCMD(vector<string> input,int ID){
 				}
 			}
 			if(i == input.size()-1 && !(has_numberpipe || has_errpipe) && !has_user_sendpipe){
-				waitpid(cpid,&status,0);
+				waitpid(pid,&status,0);
 			}
 			ClearUserPipe();
 		}
@@ -684,7 +684,7 @@ int ParseCMD(vector<string> input,int ID){
 				f->fifolist[user_send_idx-1][ID-1].used = true;
 				close(f->fifolist[user_send_idx-1][ID-1].in);
 				client *c =  (client *)mmap(NULL, sizeof(client) * CLIENTMAX, PROT_READ, MAP_SHARED, info_shared_fd, 0);
-				kill(c[user_send_idx-1].cpid,SIGUSR2);
+				kill(c[user_send_idx-1].pid,SIGUSR2);
 				munmap(c, sizeof(client) * CLIENTMAX);
 				munmap(f,  sizeof(fifo_info));
 			}
@@ -838,7 +838,7 @@ int main(int argc,char *argv[]){
 	init_info_shared_memory();
 	init_FIFO_shared_memory();
 	/* socket setting */
-	int server_fd, child_socket;
+	int msocket, ssocket;
 	struct sockaddr_in sin;
 	int port = atoi(argv[1]);
     bzero((char *)&sin, sizeof(sin));
@@ -846,59 +846,61 @@ int main(int argc,char *argv[]){
     sin.sin_addr.s_addr = INADDR_ANY;
     sin.sin_port = htons(port);
 
-    server_fd = socket(AF_INET, SOCK_STREAM, 0);
-	if (server_fd <= 0){
+    msocket = socket(AF_INET, SOCK_STREAM, 0);
+	if (msocket <= 0){
 		perror("Error : socket fail");
         exit(1);
 	}
 	int optval = 1;
-	if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(int)) == -1) {
+	if (setsockopt(msocket, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(int)) == -1) {
 		perror("Error: set socket fail");
 		exit(1);
 	}
-	if (bind(server_fd, (struct sockaddr *)&sin,sizeof(sin)) < 0){
+	if (bind(msocket, (struct sockaddr *)&sin,sizeof(sin)) < 0){
 		perror("Error: bind fail");
 		exit(1);
 	}
-	if (listen(server_fd, 0) < 0){
+	if (listen(msocket, 5) < 0){
 		perror("Error: listen fail");
 		exit(1);
 	}
 	while(1){
 		struct sockaddr_in child_addr;	
-		int addrlen = sizeof(child_addr);
-		child_socket = accept(server_fd,(struct sockaddr *)&child_addr,(socklen_t*)&addrlen);
+		int alen = sizeof(child_addr);
+		ssocket = accept(msocket,(struct sockaddr *)&child_addr,(socklen_t*)&alen);
 		
 		/* Check number of clients*/
 		int ID = get_min_num();
 		if(ID < 0){
-			perror("Client MAX");
-			return 0;
+			perror("Error : Client Exceed");
+			exit(0);
 		}
-		if(child_socket < 0){
-			perror("accept failed");
-			exit(EXIT_FAILURE);
+		if(ssocket < 0){
+			perror("Error : accept failed");
+			exit(0);
 		}
-		int cpid = fork();
-		while(cpid < 0){
-			//fork error
-			usleep(500);
-			cpid = fork();
+		int pid = fork();
+		while(pid < 0){
+			usleep(10000);
+			pid = fork();
 		}
-		if(cpid > 0){
+		if(pid > 0){
 			//parent close socket
 			signal (SIGCHLD, ServerSigHandler);
 			signal (SIGINT, ServerSigHandler);
 			signal (SIGQUIT, ServerSigHandler);
 			signal (SIGTERM, ServerSigHandler);
-			close(child_socket);
+			close(ssocket);
 		}else{
             /* client ip */
-			dup2(child_socket,STDIN_FILENO);
-			dup2(child_socket,STDOUT_FILENO);
-			dup2(child_socket,STDERR_FILENO);
-			close(child_socket);
-			close(server_fd);
+            close(0);
+            close(1);
+            close(2);
+			dup(ssocket);
+            dup(ssocket);
+            dup(ssocket);
+			close(ssocket);
+			close(msocket);
 			/* set info shared memory */
 			void *p = mmap(NULL, sizeof(client) * CLIENTMAX, PROT_READ | PROT_WRITE, MAP_SHARED, info_shared_fd, 0);
 			client *cf = (client *) p;
@@ -906,7 +908,7 @@ int main(int argc,char *argv[]){
             sprintf(ip, "%s:%d", inet_ntoa(child_addr.sin_addr), ntohs(child_addr.sin_port));
 			strncpy(cf[ID-1].ip,ip,INET6_ADDRSTRLEN);
 			strcpy(cf[ID-1].nickname,"(no name)");
-			cf[ID-1].cpid = getpid();
+			cf[ID-1].pid = getpid();
 			cf[ID-1].valid = true;
 			munmap(p, sizeof(client) * CLIENTMAX);
 			/* Set signals for boradcast msg */
@@ -917,7 +919,7 @@ int main(int argc,char *argv[]){
 			signal(SIGQUIT, SIGHANDLE);
 			signal(SIGTERM, SIGHANDLE);
 			/* send welcome msg */
-			welcome(child_socket);
+			welcome(ssocket);
 			/* broadcast login information */
 			broadcast(0, "", ID, 0);
 			//child exec shell
