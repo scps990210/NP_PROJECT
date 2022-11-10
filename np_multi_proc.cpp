@@ -58,7 +58,7 @@ struct broadcast_order{
 };
 
 int shm_fd;
-int info_shared_fd;
+int data_shared_fd;
 int userpipe_shared;
 int server_pid;
 int client_id;
@@ -76,7 +76,7 @@ int GETSTART(int ID);
 void Piping(vector<string> input,int ID);
 /* Get  minimum number of client */
 int select_min(){
-	client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ, MAP_SHARED, info_shared_fd, 0);
+	client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ, MAP_SHARED, data_shared_fd, 0);
 	for(int i = 0;i < 30;++i){
 		if(!c[i].valid){
 			munmap(c, sizeof(client) * 30);
@@ -112,7 +112,7 @@ vector<string> split(string str, string pattern) {
 void broadcast(int type,string msg,int ID,int tarfd){
 	char buf[BUFSIZE];
 	memset( buf, 0, sizeof(char)*BUFSIZE );
-	client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ, MAP_SHARED, info_shared_fd, 0);
+	client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ, MAP_SHARED, data_shared_fd, 0);
 	switch(type){
 		case 0:
 			/* Login */
@@ -170,7 +170,7 @@ void broadcast(int type,string msg,int ID,int tarfd){
 	tmpstring += '\0';
 	strncpy(p, tmpstring.c_str(),tmpstring.length());
 	munmap(p, 16384);
-	usleep(50);
+	usleep(1000);
 	if(type != 3){
 		for(int i = 0;i < 30;++i){
 			/* check id valid */
@@ -271,7 +271,7 @@ void PushNumPipe(int in,int out){
 
 void WHO(){
 	printf("<ID>\t<nickname>\t<IP:port>\t<indicate me>\n");
-	client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ, MAP_SHARED, info_shared_fd, 0);
+	client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ, MAP_SHARED, data_shared_fd, 0);
 	for(int i = 0;i < 30;i++){
 		if(c[i].valid == true){
 			if(c[i].pid == getpid()){
@@ -288,7 +288,7 @@ void WHO(){
 }
 
 void NAME(string name,int ID){
-	client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ| PROT_WRITE, MAP_SHARED, info_shared_fd, 0);
+	client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ| PROT_WRITE, MAP_SHARED, data_shared_fd, 0);
 	for(int i = 0;i < 30;i++){
 		if(c[i].valid == true && c[i].nickname == name){
 			if(c[i].pid != getpid()){
@@ -427,7 +427,7 @@ void Piping(vector<string> input,int ID){
 					if(s.size() != 1){
 						int send_id = atoi(s.erase(0,j + recpip.length()).c_str());
                         user_send_idx = send_id;
-                        client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ, MAP_SHARED, info_shared_fd, 0);
+                        client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ, MAP_SHARED, data_shared_fd, 0);
 						if(send_id > 30 || c[send_id-1].valid == false){
 							/* exceed max client number */
 							recv_userpipe = true;
@@ -466,7 +466,7 @@ void Piping(vector<string> input,int ID){
 					if(s.size() != 1){
 						int recv_id = atoi(s.erase(0,j + senpip.length()).c_str());
 						user_recv_idx = recv_id;
-                        client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ, MAP_SHARED, info_shared_fd, 0);
+                        client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ, MAP_SHARED, data_shared_fd, 0);
                         if(recv_id > 30 || c[recv_id-1].valid == false){
                             /* exceed max client number */
                             dup_userpipe = true;
@@ -637,7 +637,7 @@ void Piping(vector<string> input,int ID){
 				//cerr <<getpid() << " open "<< f->fifolist[user_send_idx-1][ID-1].in << endl;
 				f->fifolist[user_send_idx-1][ID-1].used = true;
 				close(f->fifolist[user_send_idx-1][ID-1].in);
-				client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ, MAP_SHARED, info_shared_fd, 0);
+				client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ, MAP_SHARED, data_shared_fd, 0);
 				kill(c[user_send_idx-1].pid,SIGUSR2);
 				munmap(c, sizeof(client) * 30);
 				munmap(f,  sizeof(fifo_info));
@@ -699,7 +699,7 @@ int GETSTART(int ID){
 		}
 		else if(str == "who"){
 			printf("<ID>\t<nickname>\t<IP:port>\t<indicate me>\n");
-			client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ, MAP_SHARED, info_shared_fd, 0);
+			client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ, MAP_SHARED, data_shared_fd, 0);
 			for(int i = 0;i < 30;i++){
 				if(c[i].valid == true){
 					if(c[i].pid == getpid()){
@@ -729,7 +729,7 @@ int GETSTART(int ID){
 			getline(is,tmp,del_c);
 			getline(is,msg);
 			//cerr << stoi(tmp) << endl;
-			client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ, MAP_SHARED, info_shared_fd, 0);
+			client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ, MAP_SHARED, data_shared_fd, 0);
 			int tarfd = -1;
 			if(c[stoi(tmp)-1].valid){
 				broadcast(3,msg,ID,stoi(tmp));
@@ -892,9 +892,9 @@ void ServerSigHandler(int sig)
 
 void init_info_shared_memory(){
 	/* shared memory store client info */
-	info_shared_fd = shm_open("used_to_store_client_info", O_CREAT | O_RDWR, 0777);
-	ftruncate(info_shared_fd, sizeof(client) * 30);
-	client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ | PROT_WRITE, MAP_SHARED, info_shared_fd, 0);
+	data_shared_fd = shm_open("used_to_store_client_info", O_CREAT | O_RDWR, 0777);
+	ftruncate(data_shared_fd, sizeof(client) * 30);
+	client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ | PROT_WRITE, MAP_SHARED, data_shared_fd, 0);
 	for(int i = 0;i < 30;++i){
 		c[i].valid = false;
 	}
@@ -990,7 +990,7 @@ int main(int argc,char *argv[]){
 			close(ssocket);
 			close(msocket);
 			/* set info shared memory */
-			void *p = mmap(NULL, sizeof(client) * 30, PROT_READ | PROT_WRITE, MAP_SHARED, info_shared_fd, 0);
+			void *p = mmap(NULL, sizeof(client) * 30, PROT_READ | PROT_WRITE, MAP_SHARED, data_shared_fd, 0);
 			client *cf = (client *) p;
 			char ip[INET6_ADDRSTRLEN];
             sprintf(ip, "%s:%d", inet_ntoa(child_addr.sin_addr), ntohs(child_addr.sin_port));
@@ -1015,7 +1015,7 @@ int main(int argc,char *argv[]){
 				close(0);
                 close(1);
                 close(2);
-				client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ | PROT_WRITE, MAP_SHARED, info_shared_fd, 0);
+				client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ | PROT_WRITE, MAP_SHARED, data_shared_fd, 0);
 				c[ID-1].valid = false;
 				broadcast(4,"",ID,0);
 				EraseUserPipe(ID);
