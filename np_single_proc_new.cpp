@@ -60,7 +60,7 @@ struct broadcast_order{
 /* used to store user information */
 vector<client> clientdata;
 /* userd to store user pipe information */
-vector<userpipe> up_vector;
+vector<userpipe> userpipe_vector;
 
 int msocket;
 fd_set rfds;
@@ -315,11 +315,11 @@ void Piping(vector<string> input,int fd){
 							continue_id1 = true;
 							break;
 						}
-						for(int k = 0;k < up_vector.size(); k++){
-							if(up_vector[k].recv_id == c->ID && up_vector[k].send_id == send_id && !up_vector[k].used){
+						for(int k = 0;k < userpipe_vector.size(); k++){
+							if(userpipe_vector[k].recv_id == c->ID && userpipe_vector[k].send_id == send_id && !userpipe_vector[k].used){
 								/* had userpipe before */
 								user_recv_idx = k;
-								up_vector[k].used = true;
+								userpipe_vector[k].used = true;
 								has_user_recvpipe = true;
 								broadcast_list.push_front({6,original_input,c,send_id});
 								break;
@@ -349,8 +349,8 @@ void Piping(vector<string> input,int fd){
 							continue_id2 = true;
 							break;
 						}
-						for(int k = 0;k < up_vector.size(); k++){
-							if(up_vector[k].recv_id == recv_id && up_vector[k].send_id == c->ID && !up_vector[k].used){
+						for(int k = 0;k < userpipe_vector.size(); k++){
+							if(userpipe_vector[k].recv_id == recv_id && userpipe_vector[k].send_id == c->ID && !userpipe_vector[k].used){
 								/* had userpipe before */
 								dup_userpipe = true;
 								/* error msg */
@@ -363,9 +363,9 @@ void Piping(vector<string> input,int fd){
 							int upipes[2];
 							pipe(upipes);
 							/* int in,int out,int send_id,int recv_id */ 
-							user_send_idx = up_vector.size();
+							user_send_idx = userpipe_vector.size();
 							userpipe tmp = {upipes[0],upipes[1],c->ID,recv_id,false};
-							up_vector.push_back(tmp);
+							userpipe_vector.push_back(tmp);
 							has_user_sendpipe = true;
 							broadcast_list.push_back({5,original_input,c,recv_id});
 						}
@@ -401,7 +401,7 @@ void Piping(vector<string> input,int fd){
 		pid = fork();
 		while (pid < 0)
 		{
-			usleep(10000);
+			usleep(1000);
 			pid = fork();
 		}
 		/* Parent */
@@ -422,12 +422,12 @@ void Piping(vector<string> input,int fd){
 					j--;
 				}
 			}
-			for(int j = 0;j < up_vector.size(); j++){
-				if(up_vector[j].used){
-					//cerr << "parent close " << up_vector[j].in << up_vector[j].out << endl;
-					close(up_vector[j].in);
-					close(up_vector[j].out);
-					up_vector.erase(up_vector.begin()+j);
+			for(int j = 0;j < userpipe_vector.size(); j++){
+				if(userpipe_vector[j].used){
+					//cerr << "parent close " << userpipe_vector[j].in << userpipe_vector[j].out << endl;
+					close(userpipe_vector[j].in);
+					close(userpipe_vector[j].out);
+					userpipe_vector.erase(userpipe_vector.begin()+j);
 				}
 			}
 			if(i == input.size()-1 && !(has_numberpipe || has_errpipe) && !has_user_sendpipe){
@@ -496,12 +496,12 @@ void Piping(vector<string> input,int fd){
 			/* Recv */
 			if(has_user_recvpipe){
 				close(0);
-				dup(up_vector[user_recv_idx].in);
+				dup(userpipe_vector[user_recv_idx].in);
 			}
 			/* Send */
 			if(has_user_sendpipe){
 				close(1);
-				dup(up_vector[user_send_idx].out);
+				dup(userpipe_vector[user_send_idx].out);
 			}
 			/* send to null*/
 			if(dup_userpipe){
@@ -517,9 +517,9 @@ void Piping(vector<string> input,int fd){
 				dup(devNull);
 				close(devNull);
 			}
-			for(int j = 0;j < up_vector.size(); j++){
-				close(up_vector[j].in);
-				close(up_vector[j].out);
+			for(int j = 0;j < userpipe_vector.size(); j++){
+				close(userpipe_vector[j].in);
+				close(userpipe_vector[j].out);
 			}
 			for(int j = 0;j < pipe_vector.size(); j++){
 				close(pipe_vector[j].in);
@@ -868,11 +868,11 @@ int main(int argc, char *argv[])
 							break;
 						}
 					}
-					for(int i = 0;i < up_vector.size();++i){
-						if(up_vector[i].send_id == id || up_vector[i].recv_id == id){
-							close(up_vector[i].in);
-							close(up_vector[i].out);
-							up_vector.erase(up_vector.begin()+i);
+					for(int i = 0;i < userpipe_vector.size();++i){
+						if(userpipe_vector[i].send_id == id || userpipe_vector[i].recv_id == id){
+							close(userpipe_vector[i].in);
+							close(userpipe_vector[i].out);
+							userpipe_vector.erase(userpipe_vector.begin()+i);
 						}
 					}
                     close(fd);
