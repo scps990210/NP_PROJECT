@@ -23,7 +23,6 @@
 
 using namespace std;
 int GETSTART(string input,int fd);
-int echo(int fd);
 void Piping(vector<string> input,int fd);
 
 struct npipe{
