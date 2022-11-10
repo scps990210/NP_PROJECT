@@ -64,6 +64,16 @@ int server_pid;
 int client_id;
 /* used to store user information */
 vector<client> client_info;
+vector<npipe> numberpipe_vector;
+vector<int> num;
+string original_input;
+list<broadcast_order> broadcast_list;
+//used to store pipe
+vector<npipe> pipe_vector;
+vector<string> userpipe;
+
+int GETSTART(int ID);
+void Piping(vector<string> input,int ID);
 /* Get  minimum number of client */
 int select_min(){
 	client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ, MAP_SHARED, info_shared_fd, 0);
@@ -247,28 +257,6 @@ void EraseUserPipe(int ID){
 	}
 	munmap(f,  sizeof(fifo_info));
 }
-vector<npipe> numberpipe_vector;
-vector<int> num;
-string original_input;
-list<broadcast_order> broadcast_list;
-//used to store pipe
-vector<npipe> pipe_vector;
-vector<string> userpipe;
-static void HandleChild(int);
-void SETENV(string, string);
-        void PRINTENV(string);
-		void WHO();
-		void NAME(string,int);
-		void YELL(int,string);
-		void TELL(int,string,int);
-		void ClearUserPipe();
-        int CheckBuiltIn(string *,int);
-        int CheckPIPE(string,int);
-        void CreatePipe(int,int,int);
-        bool isWhitespace(string);
-        int EXECCMD(vector<string>);
-        int EXEC(int);
-        void Piping(vector<string> input,int ID);
 
 void HandleChild(int sig){
 	int status;
@@ -279,15 +267,6 @@ void HandleChild(int sig){
 void PushNumPipe(int in,int out){
 	npipe np = {in,out};
 	numberpipe_vector.push_back(np);
-}
-
-void SETENV(string name,string val){
-	setenv(name.c_str(),val.c_str(),1);
-}
-
-void PRINTENV(string name){
-	char *val = getenv(name.c_str());
-	if(val) cout << val << endl;
 }
 
 void WHO(){
@@ -322,88 +301,6 @@ void NAME(string name,int ID){
 	strncpy(c[ID-1].nickname,name.c_str(),name.length());
 	broadcast(1,name,ID,0);
 	munmap(c, sizeof(client) * 30);
-}
-
-void YELL(int ID,string msg){
-	broadcast(2,msg,ID,0);
-}
-
-void TELL(int ID,string msg,int target){
-	client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ, MAP_SHARED, info_shared_fd, 0);
-	int tarfd = -1;
-	if(c[target-1].valid){
-		broadcast(3,msg,ID,target);
-	}
-	else{
-		string tmpstring(to_string(target));
-		broadcast(3,tmpstring,ID,-1);
-	}
-	munmap(c, sizeof(client) * 30);
-	return;
-}
-
-int CheckBuiltIn(string *input,int ID){
-	istringstream iss(*input);
-	string cmd;
-	getline(iss,cmd,' ');
-	if(cmd == "printenv"){
-		getline(iss,cmd);
-		PRINTENV(cmd);
-		*input = "";
-		return 1;
-	}else if(cmd == "setenv"){
-		string name,val;
-		getline(iss,name,' ');
-		getline(iss,val);
-		SETENV(name,val);
-		*input = "";
-		return 1;
-	}else if(cmd == "exit"){
-		*input = "";
-		return -1;
-	}
-	else if(cmd == "who"){
-		WHO();
-		*input = "";
-		return 1;
-	}else if(cmd == "name"){
-		string name;
-		getline(iss,name,' ');
-		NAME(name,ID);
-		*input = "";
-		return 1;
-	}else if(cmd == "yell"){
-		string msg;
-		getline(iss,msg);
-		YELL(ID,msg);
-		*input = "";
-		return 1;
-	}else if(cmd == "tell"){
-		string msg,tmp;
-		getline(iss,tmp,' ');
-		getline(iss,msg);
-		//cerr << stoi(tmp) << endl;
-		TELL(ID,msg,stoi(tmp));
-		*input = "";
-		return 1;
-	}
-	return 0;
-}
-
-int CheckPIPE(string input,int ID){
-	vector<string> cmds;
-	string delim = " | ";
-	size_t pos = 0;
-	bool exit_sig = false;
-	while((pos = input.find(delim)) != string::npos){
-		cmds.push_back(input.substr(0,pos));
-		input.erase(0,pos + delim.length());
-	}
-	if(CheckBuiltIn(&input,ID) == -1) exit_sig = true;
-	cmds.push_back(input);
-	Piping(cmds,ID);
-	if(exit_sig) return -1;
-	return 0;
 }
 
 void CreatePipe(){
@@ -769,28 +666,199 @@ void Piping(vector<string> input,int ID){
 	pipe_vector.clear();
 }
 
-int EXEC(int ID){
-	//cout << getpid() << endl;
+int GETSTART(int ID){
 	client_id = ID;
 	clearenv();
-	SETENV("PATH","bin:.");
+	setenv("PATH","bin:.",1);
 	while(1){
 		string input;
 		cout << "% ";
 		getline(cin,input);
-		if(!cin)
-			if(cin.eof())
-			{
-				cout << endl;
-				return 0;
-			}
-		if(input.empty() || isWhitespace(input)) continue;
 		input.erase(remove(input.begin(), input.end(), '\n'),input.end());
 		input.erase(remove(input.begin(), input.end(), '\r'),input.end());
 		original_input = input;
-		//cout << original_input << endl;
-		if(CheckPIPE(input,ID)  == -1){
+
+		char del_c = ' ';
+		istringstream is(input);
+		string str;
+		getline(is,str,del_c);
+		if(str == "printenv"){
+			getline(is,str);
+			char *val = getenv(str.c_str());
+			if(val) cout << val << endl;
+			input = "";
+		}else if(str == "setenv"){
+			string name,val;
+			getline(is,name,del_c);
+			getline(is,val);
+			setenv(name.c_str(),val.c_str(),1);
+			input = "";
+		}else if(str == "exit"){
+			input = "";
 			return -1;
+		}
+		else if(str == "who"){
+			printf("<ID>\t<nickname>\t<IP:port>\t<indicate me>\n");
+			client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ, MAP_SHARED, info_shared_fd, 0);
+			for(int i = 0;i < 30;i++){
+				if(c[i].valid == true){
+					if(c[i].pid == getpid()){
+						printf("%d\t%s\t%s\t<-me\n",i+1,c[i].nickname,c[i].ip);
+					}
+					else
+					{
+						printf("%d\t%s\t%s\t\n",i+1,c[i].nickname,c[i].ip);
+					}
+				}
+			}
+			fflush(stdout);
+			munmap(c, sizeof(client) * 30);
+			input = "";
+		}else if(str == "name"){
+			string name;
+			getline(is,name,del_c);
+			NAME(name,ID);
+			input = "";
+		}else if(str == "yell"){
+			string msg;
+			getline(is,msg);
+			broadcast(2,msg,ID,0);
+			input = "";
+		}else if(str == "tell"){
+			string msg,tmp;
+			getline(is,tmp,del_c);
+			getline(is,msg);
+			//cerr << stoi(tmp) << endl;
+			client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ, MAP_SHARED, info_shared_fd, 0);
+			int tarfd = -1;
+			if(c[stoi(tmp)-1].valid){
+				broadcast(3,msg,ID,stoi(tmp));
+			}
+			else{
+				string tmpstring(to_string(stoi(tmp)));
+				broadcast(3,tmpstring,ID,-1);
+			}
+			munmap(c, sizeof(client) * 30);
+			input = "";
+		}
+
+
+		//Split | character
+		string p = " | ";
+		vector<string> c;
+		vector<string> r = split(input, p);
+		for (auto& s : r) {
+			c.push_back(s);
+			//cout << "commands = " << commands[k++] << endl;
+		}	
+		vector<string>number_record;
+		for(int i = 0 ; i < c.size() ; i++){
+		string numpip = "|";
+		string space = " ";
+		vector<string> instr;
+        vector<string> ret = split(c[i], space);
+        for (auto& s : ret) {
+			for(int j = 0 ; j < s.size() ; j++){
+				if(s[j] == '|' || s[j] == '!'){
+					string number2 = s.erase(0,j + numpip.length());
+					//cout << "number = " << number2 << endl;
+					number_record.push_back(number2);
+				}
+			}
+		}
+		}
+		int count = 0;
+		int l = 0;
+		int cnt = 0;
+		int o = 0;
+		vector<int> record;
+		for(int i = 0 ; i < input.size() ; i++){
+			cnt++;
+			if(input[i] == '!' || input[i] == '|' && input[i+1] != ' '){
+				count ++;
+				record.push_back(cnt);
+				if(number_record[o].length() == 1){
+					cnt = -2;
+					o++;
+				}else if(number_record[o].length() == 2){
+					cnt = -3;
+					o++;
+				}else if(number_record[o].length() == 3){
+					cnt = -4;
+					o++;
+				}else if(number_record[o].length() == 4){
+					cnt = -5;
+					o++;
+				}else{
+					cnt = -6;
+					o++;
+				}
+				//cout << "count = " << count << endl;
+				//cout << "record = " << record[l++] << endl;
+			}
+		}
+		vector<string> cmd;
+		int k = 0;
+		if(count > 0){
+			for(int i = 0 ; i < count ; i++){
+				if(number_record[i].length() == 1){
+					cmd.push_back(input.substr(0,record[i])+number_record[i]);
+					//cout << "cmds = " << cmd[k++] << endl;
+					input.erase(0,record[i]+2);
+					//cout << "remains = " << input.size() << endl;
+				}else if(number_record[i].length() == 2){
+					cmd.push_back(input.substr(0,record[i])+number_record[i]);
+					//cout << "cmds = " << cmd[k++] << endl;
+					input.erase(0,record[i]+3);
+					//cout << "remains = " << input.size() << endl;
+				}else if(number_record[i].length() == 3){
+					cmd.push_back(input.substr(0,record[i])+number_record[i]);
+					//cout << "cmds = " << cmd[k++] << endl;
+					input.erase(0,record[i]+4);
+					//cout << "remains = " << input.size() << endl;
+				}else if(number_record[i].length() == 4){
+					cmd.push_back(input.substr(0,record[i])+number_record[i]);
+					//cout << "cmds = " << cmd[k++] << endl;
+					input.erase(0,record[i]+5);
+					//cout << "remains = " << input.size() << endl;
+				}else{
+					cmd.push_back(input.substr(0,record[i])+number_record[i]);
+					//cout << "cmds = " << cmd[k++] << endl;
+					input.erase(0,record[i]+6);
+					//cout << "remains = " << input.size() << endl;
+				}
+				
+			}
+			if(input.size() > 0){
+				cmd.push_back(input);
+				//cout << "cmds = " << cmd[k++] << endl;
+			}
+			for(int j = 0 ; j < cmd.size() ; j++){
+				//cout << "cmdsize = " << cmd.size() << endl;
+				//Split | character
+				string pattern = " | ";
+				vector<string> commands;
+				int k = 0;
+				vector<string> ret = split(cmd[j], pattern);
+				for (auto& s : ret) {
+					commands.push_back(s);
+					//cout << "commands = " << commands[k++] << endl;
+				}
+				Piping(commands,ID);
+				usleep(10000);
+			}
+			
+		}else{
+			//Split | character
+			string pattern = " | ";
+			vector<string> commands;
+			int k = 0;
+			vector<string> ret = split(input, pattern);
+			for (auto& s : ret) {
+				commands.push_back(s);
+				//cout << "commands = " << commands[k++] << endl;
+			}
+			Piping(commands,ID);
 		}
 	}
 	return 0;
@@ -943,7 +1011,7 @@ int main(int argc,char *argv[]){
 			/* broadcast login information */
 			broadcast(0, "", ID, 0);
 			//child exec shell
-			if(EXEC(ID) == -1){
+			if(GETSTART(ID) == -1){
 				close(0);
                 close(1);
                 close(2);
