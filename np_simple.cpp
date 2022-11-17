@@ -439,7 +439,6 @@ int main(int argc,char const *argv[]){
             dup(ssocket);
             dup(ssocket);
             dup(ssocket);
-			close(ssocket);
 			GETSTART();
 
 			exit(0);
