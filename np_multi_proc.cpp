@@ -20,8 +20,6 @@
 #include <dirent.h>
 #include <list>
 
-#define PATHMAX 20
-#define BUFSIZE 4096
 #define PIPE_PATH "user_pipe/"
 
 using namespace std;
@@ -43,10 +41,10 @@ struct FIFOunit{
 	int in;
 	int out;
 	bool used;
-	char name[PATHMAX];
+	char name[20];
 };
 
-struct fifo_info{
+struct fifo_data{
 	FIFOunit fifolist[30][30];
 };
 
@@ -58,26 +56,22 @@ struct broadcast_order{
 };
 
 int shm_fd;
-int data_shared_fd;
-int userpipe_shared;
+int data_fd;
+int up_fd;
 int server_pid;
 int client_id;
-/* used to store user information */
+
 vector<client> client_info;
 vector<npipe> numberpipe_vector;
 vector<int> num;
 string original_input;
 list<broadcast_order> broadcast_list;
-//used to store pipe
 vector<npipe> pipe_vector;
 vector<string> userpipe;
 
-int GETSTART(int ID);
-void Piping(vector<string> input,int ID);
-/* Get  minimum number of client */
 int select_min(){
-	client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ, MAP_SHARED, data_shared_fd, 0);
-	for(int i = 0;i < 30;++i){
+	client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ, MAP_SHARED, data_fd, 0);
+	for(int i = 0;i < 30; i++){
 		if(!c[i].valid){
 			munmap(c, sizeof(client) * 30);
 			return i+1;
@@ -110,9 +104,9 @@ vector<string> split(string str, string pattern) {
 
 /* broadcast method with shared memory */
 void broadcast(int type,string msg,int ID,int tarfd){
-	char buf[BUFSIZE];
-	memset( buf, 0, sizeof(char)*BUFSIZE );
-	client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ, MAP_SHARED, data_shared_fd, 0);
+	char buf[4096];
+	bzero( buf,sizeof(char)*4096 );
+	client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ, MAP_SHARED, data_fd, 0);
 	switch(type){
 		case 0:
 			/* Login */
@@ -172,7 +166,7 @@ void broadcast(int type,string msg,int ID,int tarfd){
 	munmap(p, 16384);
 	usleep(1000);
 	if(type != 3){
-		for(int i = 0;i < 30;++i){
+		for(int i = 0;i < 30 ; i++){
 			/* check id valid */
 			if(c[i].valid == true){
 				kill(c[i].pid,SIGUSR1);
@@ -195,28 +189,28 @@ static void SIGHANDLE(int sig){
 	}
 	/* receive msg from userpipe */
 	else if(sig == SIGUSR2){
-		fifo_info* f =  (fifo_info *)mmap(NULL, sizeof(fifo_info) , PROT_READ | PROT_WRITE, MAP_SHARED, userpipe_shared, 0);
-		for(int i = 0;i < 30;++i){
-			if(f->fifolist[client_id-1][i].used){
-				close(f->fifolist[client_id-1][i].out);
-				memset(&f->fifolist[client_id-1][i].name, 0, sizeof(f->fifolist[client_id-1][i].name));
-				f->fifolist[client_id-1][i].out = -1;
-				f->fifolist[client_id-1][i].used = false;
-				//cerr << getpid()<< " close out " << f->fifolist[client_id-1][i].out << endl;
+		fifo_data* fifo =  (fifo_data *)mmap(NULL, sizeof(fifo_data) , PROT_READ | PROT_WRITE, MAP_SHARED, up_fd, 0);
+		for(int i = 0;i < 30; i++){
+			if(fifo->fifolist[client_id-1][i].used){
+				close(fifo->fifolist[client_id-1][i].out);
+				bzero(&fifo->fifolist[client_id-1][i].name, sizeof(fifo->fifolist[client_id-1][i].name));
+				fifo->fifolist[client_id-1][i].out = -1;
+				fifo->fifolist[client_id-1][i].used = false;
+				//cerr << getpid()<< " close out " << fifo->fifolist[client_id-1][i].out << endl;
 			}
-			if(f->fifolist[i][client_id-1].used){
-				f->fifolist[i][client_id-1].used = false;
-				memset(&f->fifolist[i][client_id-1].name, 0, sizeof(f->fifolist[i][client_id-1].name));
-				f->fifolist[i][client_id-1].in = -1;
-				close(f->fifolist[i][client_id-1].in);
-				//cerr << getpid()<< " close in " << f->fifolist[i][client_id-1].in << endl;
+			if(fifo->fifolist[i][client_id-1].used){
+				fifo->fifolist[i][client_id-1].used = false;
+				bzero(&fifo->fifolist[i][client_id-1].name, sizeof(fifo->fifolist[i][client_id-1].name));
+				fifo->fifolist[i][client_id-1].in = -1;
+				close(fifo->fifolist[i][client_id-1].in);
+				//cerr << getpid()<< " close in " << fifo->fifolist[i][client_id-1].in << endl;
 			}
-			if(f->fifolist[i][client_id-1].in == -1 && f->fifolist[i][client_id-1].name[0] != 0){
-				f->fifolist[i][client_id-1].in = open(f->fifolist[i][client_id-1].name,O_RDONLY);
-				//cerr << getpid()<< " open in " << f->fifolist[i][client_id-1].in << endl;
+			if(fifo->fifolist[i][client_id-1].in == -1 && fifo->fifolist[i][client_id-1].name[0] != 0){
+				fifo->fifolist[i][client_id-1].in = open(fifo->fifolist[i][client_id-1].name,O_RDONLY);
+				//cerr << getpid()<< " open in " << fifo->fifolist[i][client_id-1].in << endl;
 			}
 		}
-		munmap(f,  sizeof(fifo_info));
+		munmap(fifo,  sizeof(fifo_data));
 	}
 	else if(sig == SIGINT || sig == SIGQUIT || sig == SIGTERM)
     {
@@ -225,82 +219,14 @@ static void SIGHANDLE(int sig){
 	signal(sig, SIGHANDLE);
 }
 
-void EraseUserPipe(int ID){
-	fifo_info* f =  (fifo_info *)mmap(NULL, sizeof(fifo_info) , PROT_READ | PROT_WRITE, MAP_SHARED, userpipe_shared, 0);
-	for(int id = 0;id < 30;++id){
-		if(f->fifolist[ID-1][id].in != -1){
-			close(f->fifolist[ID-1][id].in);
-			unlink(f->fifolist[ID-1][id].name);
-		}
-		if(f->fifolist[ID-1][id].out != -1){
-			close(f->fifolist[ID-1][id].out);
-			unlink(f->fifolist[ID-1][id].name);
-		}
-		f->fifolist[ID-1][id].in = -1;
-		f->fifolist[ID-1][id].out = -1;
-		f->fifolist[ID-1][id].used = false;
-		memset(&f->fifolist[ID-1][id].name, 0, sizeof(f->fifolist[ID-1][id].name));
-	}
-	for(int id = 0;id < 30;++id){
-		if(f->fifolist[id][ID-1].in != -1){
-			close(f->fifolist[id][ID-1].in);
-			unlink(f->fifolist[id][ID-1].name);
-		}
-		if(f->fifolist[id][ID-1].out != -1){
-			close(f->fifolist[id][ID-1].out);
-			unlink(f->fifolist[id][ID-1].name);
-		}
-		f->fifolist[id][ID-1].in = -1;
-		f->fifolist[id][ID-1].out = -1;
-		f->fifolist[id][ID-1].used = false;
-		memset(&f->fifolist[id][ID-1].name, 0, sizeof(f->fifolist[id][ID-1].name));
-	}
-	munmap(f,  sizeof(fifo_info));
-}
-
 void HandleChild(int sig){
-	int status;
-	while(waitpid(-1,&status,WNOHANG) > 0){
-	};
+	while(waitpid(-1,NULL,WNOHANG) > 0){
+	}
 }
 
 void PushNumPipe(int in,int out){
 	npipe np = {in,out};
 	numberpipe_vector.push_back(np);
-}
-
-void WHO(){
-	printf("<ID>\t<nickname>\t<IP:port>\t<indicate me>\n");
-	client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ, MAP_SHARED, data_shared_fd, 0);
-	for(int i = 0;i < 30;i++){
-		if(c[i].valid == true){
-			if(c[i].pid == getpid()){
-				printf("%d\t%s\t%s\t<-me\n",i+1,c[i].nickname,c[i].ip);
-			}
-			else
-			{
-				printf("%d\t%s\t%s\t\n",i+1,c[i].nickname,c[i].ip);
-			}
-		}
-	}
-	fflush(stdout);
-	munmap(c, sizeof(client) * 30);
-}
-
-void NAME(string name,int ID){
-	client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ| PROT_WRITE, MAP_SHARED, data_shared_fd, 0);
-	for(int i = 0;i < 30;i++){
-		if(c[i].valid == true && c[i].nickname == name){
-			if(c[i].pid != getpid()){
-				broadcast(1,name,ID,-1);
-				return;
-			}
-		}
-	}
-	name += '\0';
-	strncpy(c[ID-1].nickname,name.c_str(),name.length());
-	broadcast(1,name,ID,0);
-	munmap(c, sizeof(client) * 30);
 }
 
 void CreatePipe(){
@@ -310,41 +236,33 @@ void CreatePipe(){
 	pipe_vector.push_back(np);
 }
 
-bool isWhitespace(string s){
-    for(int index = 0; index < s.length(); index++){
-        if(!isspace(s[index]))
-            return false;
-    }
-    return true;
-}
-
 void ClearUserPipe(){
-	fifo_info* f =  (fifo_info *)mmap(NULL, sizeof(fifo_info) , PROT_READ | PROT_WRITE, MAP_SHARED, userpipe_shared, 0);
-	for(int id = 0;id < 30;++id){
-		if(f->fifolist[id][client_id-1].used == true){
-			close(f->fifolist[id][client_id-1].in);
-			f->fifolist[id][client_id-1].in = -1;
-			f->fifolist[id][client_id-1].out = -1;
-			f->fifolist[id][client_id-1].used = false;
-			unlink(f->fifolist[id][client_id-1].name);
-			memset(&f->fifolist[id][client_id-1].name, 0, sizeof(f->fifolist[id-1][client_id-1].name));
+	fifo_data* fifo =  (fifo_data *)mmap(NULL, sizeof(fifo_data) , PROT_READ | PROT_WRITE, MAP_SHARED, up_fd, 0);
+	for(int id = 0;id < 30; id++){
+		if(fifo->fifolist[id][client_id-1].used == true){
+			close(fifo->fifolist[id][client_id-1].in);
+			fifo->fifolist[id][client_id-1].in = 0;
+			fifo->fifolist[id][client_id-1].out = 0;
+			fifo->fifolist[id][client_id-1].used = false;
+			unlink(fifo->fifolist[id][client_id-1].name);
+			bzero(&fifo->fifolist[id][client_id-1].name, 0);
 		}
-		if(f->fifolist[client_id-1][id].used == true){
-			close(f->fifolist[client_id-1][id].out);
-			f->fifolist[client_id-1][id].in = -1;
-			f->fifolist[client_id-1][id].out = -1;
-			f->fifolist[client_id-1][id].used = false;
-			unlink(f->fifolist[client_id-1][id].name);
-			memset(&f->fifolist[client_id-1][id].name, 0, sizeof(f->fifolist[client_id-1][id].name));
+		if(fifo->fifolist[client_id-1][id].used == true){
+			close(fifo->fifolist[client_id-1][id].out);
+			fifo->fifolist[client_id-1][id].in = 0;
+			fifo->fifolist[client_id-1][id].out = 0;
+			fifo->fifolist[client_id-1][id].used = false;
+			unlink(fifo->fifolist[client_id-1][id].name);
+			bzero(&fifo->fifolist[client_id-1][id].name, 0);
 		}
 	}
-	munmap(f,  sizeof(fifo_info));
+	munmap(fifo,  sizeof(fifo_data));
 }
 
 void EXECINSTR(vector<string> instr){
 	int fd;
 	const char **argv = new const char* [instr.size()+1];
-	for(int i=0;i < instr.size();++i){
+	for(int i=0;i < instr.size(); i++){
 		//file redirect
 		if(instr[i] == ">"){
 			fd = open(instr.back().c_str(),O_CREAT|O_RDWR|O_TRUNC, S_IREAD|S_IWRITE);
@@ -376,8 +294,8 @@ void Piping(vector<string> input,int ID){
 		bool has_user_sendpipe = false,has_user_recvpipe = false,dup_userpipe = false,recv_userpipe = false;
 		int user_send_idx = 0,user_recv_idx = 0;
 		int err_send_id = -1,err_recv_id = -1;
-        char send_fifo_name[PATHMAX];
-		char recv_fifo_name[PATHMAX];
+        char sendbuf[20];
+		char recvbuf[20];
 		vector<string> instr;
         vector<string> ret = split(input[i], space);
         for (auto& s : ret) {
@@ -427,7 +345,7 @@ void Piping(vector<string> input,int ID){
 					if(s.size() != 1){
 						int send_id = atoi(s.erase(0,j + recpip.length()).c_str());
                         user_send_idx = send_id;
-                        client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ, MAP_SHARED, data_shared_fd, 0);
+                        client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ, MAP_SHARED, data_fd, 0);
 						if(send_id > 30 || c[send_id-1].valid == false){
 							/* exceed max client number */
 							recv_userpipe = true;
@@ -436,9 +354,9 @@ void Piping(vector<string> input,int ID){
 							continue_id1 = true;
 							break;
 						}
-                        sprintf(recv_fifo_name,"%s%d_%d",PIPE_PATH,send_id,ID);
-					    fifo_info* f =  (fifo_info *)mmap(NULL, sizeof(fifo_info) , PROT_READ, MAP_SHARED, userpipe_shared, 0);
-						if(f->fifolist[send_id-1][ID-1].name[0] != 0){//access(recv_fifo_name,0) == 0
+                        sprintf(recvbuf,"%s%d_%d",PIPE_PATH,send_id,ID);
+					    fifo_data* fifo =  (fifo_data *)mmap(NULL, sizeof(fifo_data) , PROT_READ, MAP_SHARED, up_fd, 0);
+						if(fifo->fifolist[send_id-1][ID-1].name[0] != 0){//access(recvbuf,0) == 0
                             /* had userpipe before */
                             has_user_recvpipe = true;
                             //broadcast(6,original_input,ID,send_id);
@@ -446,7 +364,7 @@ void Piping(vector<string> input,int ID){
                             broadcast_list.push_front(tbo);
                             munmap(c, sizeof(client) * 30);
                         }
-                        munmap(f,  sizeof(fifo_info));
+                        munmap(fifo,  sizeof(fifo_data));
                         if(!has_user_recvpipe){
                             /* error msg */
                             recv_userpipe = true;
@@ -466,7 +384,7 @@ void Piping(vector<string> input,int ID){
 					if(s.size() != 1){
 						int recv_id = atoi(s.erase(0,j + senpip.length()).c_str());
 						user_recv_idx = recv_id;
-                        client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ, MAP_SHARED, data_shared_fd, 0);
+                        client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ, MAP_SHARED, data_fd, 0);
                         if(recv_id > 30 || c[recv_id-1].valid == false){
                             /* exceed max client number */
                             dup_userpipe = true;
@@ -475,9 +393,9 @@ void Piping(vector<string> input,int ID){
                             continue_id2 = true;
                             break;
                         }
-                        sprintf(send_fifo_name,"%s%d_%d",PIPE_PATH,ID,recv_id);
-                        fifo_info* f =  (fifo_info *)mmap(NULL, sizeof(fifo_info) , PROT_READ, MAP_SHARED, userpipe_shared, 0);
-                        if(f->fifolist[ID-1][recv_id-1].name[0] != 0){//access(send_fifo_name,0) == 0
+                        sprintf(sendbuf,"%s%d_%d",PIPE_PATH,ID,recv_id);
+                        fifo_data* fifo =  (fifo_data *)mmap(NULL, sizeof(fifo_data) , PROT_READ, MAP_SHARED, up_fd, 0);
+                        if(fifo->fifolist[ID-1][recv_id-1].name[0] != 0){//access(sendbuf,0) == 0
                             /* had userpipe before */
                             dup_userpipe = true;
                             /* error msg */
@@ -485,19 +403,19 @@ void Piping(vector<string> input,int ID){
                             ID,recv_id);
                             fflush(stdout);
                         }
-                        munmap(f,  sizeof(fifo_info));
+                        munmap(fifo,  sizeof(fifo_data));
                         if(!dup_userpipe){
                             /* hadn't userpipe */
                             has_user_sendpipe = true;
-                            mkfifo(send_fifo_name, S_IFIFO | 0777);
-                            fifo_info* f =  (fifo_info *)mmap(NULL, sizeof(fifo_info) , PROT_READ | PROT_WRITE, MAP_SHARED, userpipe_shared, 0);
+                            mkfifo(sendbuf, S_IFIFO | 0777);
+                            fifo_data* fifo =  (fifo_data *)mmap(NULL, sizeof(fifo_data) , PROT_READ | PROT_WRITE, MAP_SHARED, up_fd, 0);
                             /* Copy filename and open input fd */
-                            strncpy(f->fifolist[ID-1][recv_id-1].name,send_fifo_name,PATHMAX);
+                            strncpy(fifo->fifolist[ID-1][recv_id-1].name,sendbuf,20);
                             //usleep(50);
                             kill(c[recv_id-1].pid,SIGUSR2);
-                            f->fifolist[ID-1][recv_id-1].out = open(send_fifo_name,O_WRONLY);
-                            //cout <<getpid() << " open out" << f->fifolist[ID-1][recv_id-1].out << endl;
-                            munmap(f,  sizeof(fifo_info));
+                            fifo->fifolist[ID-1][recv_id-1].out = open(sendbuf,O_WRONLY);
+                            //cout <<getpid() << " open out" << fifo->fifolist[ID-1][recv_id-1].out << endl;
+                            munmap(fifo,  sizeof(fifo_data));
                             /* broadcast msg
                             broadcast(5,original_input,ID,recv_id);
                             */
@@ -610,7 +528,8 @@ void Piping(vector<string> input,int ID){
 			}
 			//numberpipe send
 			if(i == input.size()-1 && has_numberpipe){
-				dup2(numberpipe_vector[numberpipe_vector.size()-1].out,1);
+				close(1);
+				dup(numberpipe_vector[numberpipe_vector.size()-1].out);
 				close(numberpipe_vector[numberpipe_vector.size()-1].in);
 				close(numberpipe_vector[numberpipe_vector.size()-1].out);
 			}
@@ -622,25 +541,27 @@ void Piping(vector<string> input,int ID){
 			}
 			/* Send */
 			if(has_user_sendpipe){
-				fifo_info* f =  (fifo_info *)mmap(NULL, sizeof(fifo_info) , PROT_READ, MAP_SHARED, userpipe_shared, 0);
+				fifo_data* fifo =  (fifo_data *)mmap(NULL, sizeof(fifo_data) , PROT_READ, MAP_SHARED, up_fd, 0);
 				/* dup2 output fd */
-				dup2(f->fifolist[ID-1][user_recv_idx-1].out,1);
-				close(f->fifolist[ID-1][user_recv_idx-1].out);
-				munmap(f,  sizeof(fifo_info));
+				close(1);
+				dup(fifo->fifolist[ID-1][user_recv_idx-1].out);
+				close(fifo->fifolist[ID-1][user_recv_idx-1].out);
+				munmap(fifo,  sizeof(fifo_data));
 			}
 			/* Recv */
 			if(has_user_recvpipe){
-				fifo_info* f =  (fifo_info *)mmap(NULL, sizeof(fifo_info) , PROT_READ | PROT_WRITE, MAP_SHARED, userpipe_shared, 0);
+				fifo_data* fifo =  (fifo_data *)mmap(NULL, sizeof(fifo_data) , PROT_READ | PROT_WRITE, MAP_SHARED, up_fd, 0);
 				/* dup2 input fd */
-				usleep(50);
-				dup2(f->fifolist[user_send_idx-1][ID-1].in,0);
-				//cerr <<getpid() << " open "<< f->fifolist[user_send_idx-1][ID-1].in << endl;
-				f->fifolist[user_send_idx-1][ID-1].used = true;
-				close(f->fifolist[user_send_idx-1][ID-1].in);
-				client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ, MAP_SHARED, data_shared_fd, 0);
+				usleep(1000);
+				close(0);
+				dup(fifo->fifolist[user_send_idx-1][ID-1].in);
+				//cerr <<getpid() << " open "<< fifo->fifolist[user_send_idx-1][ID-1].in << endl;
+				fifo->fifolist[user_send_idx-1][ID-1].used = true;
+				close(fifo->fifolist[user_send_idx-1][ID-1].in);
+				client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ, MAP_SHARED, data_fd, 0);
 				kill(c[user_send_idx-1].pid,SIGUSR2);
 				munmap(c, sizeof(client) * 30);
-				munmap(f,  sizeof(fifo_info));
+				munmap(fifo,  sizeof(fifo_data));
 			}
 			/* send to null*/
 			if(dup_userpipe){
@@ -671,6 +592,7 @@ int GETSTART(int ID){
 	clearenv();
 	setenv("PATH","bin:.",1);
 	while(1){
+		bool name_flag = false;
 		string input;
 		cout << "% ";
 		getline(cin,input);
@@ -695,11 +617,11 @@ int GETSTART(int ID){
 			input = "";
 		}else if(str == "exit"){
 			input = "";
-			return -1;
+			return 87;
 		}
 		else if(str == "who"){
 			printf("<ID>\t<nickname>\t<IP:port>\t<indicate me>\n");
-			client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ, MAP_SHARED, data_shared_fd, 0);
+			client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ, MAP_SHARED, data_fd, 0);
 			for(int i = 0;i < 30;i++){
 				if(c[i].valid == true){
 					if(c[i].pid == getpid()){
@@ -717,7 +639,21 @@ int GETSTART(int ID){
 		}else if(str == "name"){
 			string name;
 			getline(is,name,del_c);
-			NAME(name,ID);
+			client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ| PROT_WRITE, MAP_SHARED, data_fd, 0);
+			for(int i = 0;i < 30;i++){
+				if(c[i].valid == true && c[i].nickname == name){
+					if(c[i].pid != getpid()){
+						broadcast(1,name,ID,-1);
+						name_flag = true;
+						break;
+					}
+				}
+			}
+			if(name_flag == true) continue;
+			name += '\0';
+			strncpy(c[ID-1].nickname,name.c_str(),name.length());
+			broadcast(1,name,ID,0);
+			munmap(c, sizeof(client) * 30);
 			input = "";
 		}else if(str == "yell"){
 			string msg;
@@ -729,7 +665,7 @@ int GETSTART(int ID){
 			getline(is,tmp,del_c);
 			getline(is,msg);
 			//cerr << stoi(tmp) << endl;
-			client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ, MAP_SHARED, data_shared_fd, 0);
+			client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ, MAP_SHARED, data_fd, 0);
 			int tarfd = -1;
 			if(c[stoi(tmp)-1].valid){
 				broadcast(3,msg,ID,stoi(tmp));
@@ -864,57 +800,14 @@ int GETSTART(int ID){
 	return 0;
 }
 
-bool sortid(client s1, client s2){
-   return s1.ID < s2.ID;
-}
-
-void welcome(int fd)
-{
-    string buf =
-        "****************************************\n\
-** Welcome to the information server. **\n\
-****************************************";
-    cout << buf << endl;
-    return;
-}
 void ServerSigHandler(int sig)
 {
-	if (sig == SIGCHLD)
-    {
+	if (sig == SIGCHLD){
 		while(waitpid (-1, NULL, WNOHANG) > 0);
 	}
-    else if(sig == SIGINT || sig == SIGQUIT || sig == SIGTERM)
-    {
+    else if(sig == SIGINT || sig == SIGQUIT || sig == SIGTERM){
 		exit (0);
 	}
-	signal (sig, ServerSigHandler);
-}
-
-void init_info_shared_memory(){
-	/* shared memory store client info */
-	data_shared_fd = shm_open("used_to_store_client_info", O_CREAT | O_RDWR, 0777);
-	ftruncate(data_shared_fd, sizeof(client) * 30);
-	client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ | PROT_WRITE, MAP_SHARED, data_shared_fd, 0);
-	for(int i = 0;i < 30;++i){
-		c[i].valid = false;
-	}
-	munmap(c, sizeof(client) * 30);
-}
-
-void init_FIFO_shared_memory(){
-	/* shared memory store client info */
-	userpipe_shared = shm_open("used_to_store_userpipe", O_CREAT | O_RDWR, 0777);
-	ftruncate(userpipe_shared, sizeof(fifo_info));
-	fifo_info* f =  (fifo_info *)mmap(NULL, sizeof(fifo_info) , PROT_READ | PROT_WRITE, MAP_SHARED, userpipe_shared, 0);
-	for(int i = 0;i < 30;++i){
-		for(int j = 0;j < 30;++j){
-			f->fifolist[i][j].used = false;
-			f->fifolist[i][j].in = -1;
-			f->fifolist[i][j].out = -1;
-			memset(&f->fifolist[i][j].name,0,sizeof(f->fifolist[i][j].name));
-		}
-	}
-	munmap(f,  sizeof(fifo_info));
 }
 
 int main(int argc,char *argv[]){
@@ -923,10 +816,29 @@ int main(int argc,char *argv[]){
    		mkdir(PIPE_PATH,0777);
 	/* Open shared memory */
 	server_pid = getpid();
-	shm_fd = shm_open("used_to_broadcast", O_CREAT | O_RDWR, 0777);
+	shm_fd = shm_open("share_fd", O_CREAT | O_RDWR, 0777);
 	ftruncate(shm_fd, 16384);
-	init_info_shared_memory();
-	init_FIFO_shared_memory();
+
+	data_fd = shm_open("client_data", O_CREAT | O_RDWR, 0777);
+	ftruncate(data_fd, sizeof(client) * 30);
+	client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ | PROT_WRITE, MAP_SHARED, data_fd, 0);
+	for(int i = 0;i < 30;++i){
+		c[i].valid = false;
+	}
+	munmap(c, sizeof(client) * 30);
+
+	up_fd = shm_open("up_data", O_CREAT | O_RDWR, 0777);
+	ftruncate(up_fd, sizeof(fifo_data));
+	fifo_data* fifo =  (fifo_data *)mmap(NULL, sizeof(fifo_data) , PROT_READ | PROT_WRITE, MAP_SHARED, up_fd, 0);
+	for(int i = 0;i < 30;++i){
+		for(int j = 0;j < 30;++j){
+			fifo->fifolist[i][j].used = false;
+			fifo->fifolist[i][j].in = -1;
+			fifo->fifolist[i][j].out = -1;
+			bzero(&fifo->fifolist[i][j].name,sizeof(fifo->fifolist[i][j].name));
+		}
+	}
+	munmap(fifo,  sizeof(fifo_data));
 	/* socket setting */
 	int msocket, ssocket;
 	struct sockaddr_in sin;
@@ -987,10 +899,9 @@ int main(int argc,char *argv[]){
 			dup(ssocket);
             dup(ssocket);
             dup(ssocket);
-			close(ssocket);
 			close(msocket);
 			/* set info shared memory */
-			void *p = mmap(NULL, sizeof(client) * 30, PROT_READ | PROT_WRITE, MAP_SHARED, data_shared_fd, 0);
+			void *p = mmap(NULL, sizeof(client) * 30, PROT_READ | PROT_WRITE, MAP_SHARED, data_fd, 0);
 			client *cf = (client *) p;
 			char ip[INET6_ADDRSTRLEN];
             sprintf(ip, "%s:%d", inet_ntoa(child_addr.sin_addr), ntohs(child_addr.sin_port));
@@ -1007,18 +918,51 @@ int main(int argc,char *argv[]){
 			signal(SIGQUIT, SIGHANDLE);
 			signal(SIGTERM, SIGHANDLE);
 			/* send welcome msg */
-			welcome(ssocket);
+			string buf =
+        "****************************************\n\
+** Welcome to the information server. **\n\
+****************************************";
+    		cout << buf << endl;
 			/* broadcast login information */
 			broadcast(0, "", ID, 0);
 			//child exec shell
-			if(GETSTART(ID) == -1){
+			if(GETSTART(ID) == 87){
 				close(0);
                 close(1);
                 close(2);
-				client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ | PROT_WRITE, MAP_SHARED, data_shared_fd, 0);
+				client *c =  (client *)mmap(NULL, sizeof(client) * 30, PROT_READ | PROT_WRITE, MAP_SHARED, data_fd, 0);
 				c[ID-1].valid = false;
 				broadcast(4,"",ID,0);
-				EraseUserPipe(ID);
+				fifo_data* fifo =  (fifo_data *)mmap(NULL, sizeof(fifo_data) , PROT_READ | PROT_WRITE, MAP_SHARED, up_fd, 0);
+				for(int i = 0;i < 30; i++){
+					if(fifo->fifolist[ID-1][i].in != -1){
+						close(fifo->fifolist[ID-1][i].in);
+						unlink(fifo->fifolist[ID-1][i].name);
+					}
+					if(fifo->fifolist[ID-1][i].out != -1){
+						close(fifo->fifolist[ID-1][i].out);
+						unlink(fifo->fifolist[ID-1][i].name);
+					}
+					fifo->fifolist[ID-1][i].in = -1;
+					fifo->fifolist[ID-1][i].out = -1;
+					fifo->fifolist[ID-1][i].used = false;
+					bzero(&fifo->fifolist[ID-1][i].name, sizeof(fifo->fifolist[ID-1][i].name));
+				}
+				for(int i = 0;i < 30; i++){
+					if(fifo->fifolist[i][ID-1].in != -1){
+						close(fifo->fifolist[i][ID-1].in);
+						unlink(fifo->fifolist[i][ID-1].name);
+					}
+					if(fifo->fifolist[i][ID-1].out != -1){
+						close(fifo->fifolist[i][ID-1].out);
+						unlink(fifo->fifolist[i][ID-1].name);
+					}
+					fifo->fifolist[i][ID-1].in = -1;
+					fifo->fifolist[i][ID-1].out = -1;
+					fifo->fifolist[i][ID-1].used = false;
+					bzero(&fifo->fifolist[i][ID-1].name, sizeof(fifo->fifolist[i][ID-1].name));
+				}
+				munmap(fifo,  sizeof(fifo_data));
 				munmap(c, sizeof(client) * 30);
                 exit(0);
 			}
