@@ -556,7 +556,7 @@ int GETSTART(string input,int fd){
 			input = "";
 		}else if(str == "exit"){
 			input = "";
-			return -1;
+			return 87;
 		}else if(str == "who"){
 			printf("<ID>\t<nickname>\t<IP:port>\t<indicate me>\n");
 			for(int i = 0;i < clientdata.size();i++){
@@ -848,7 +848,7 @@ int main(int argc, char *argv[])
 				dup(fd);
 				dup(fd);
                 broadcast_list.clear();
-                if (GETSTART(input, fd) == -1){
+                if (GETSTART(input, fd) == 87){
                     /* broadcast logout information */
                     client c;
                     for(int i = 0;i < clientdata.size();i++){
